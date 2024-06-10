@@ -1,3 +1,4 @@
+//Login to imdb to get a free api key
 import { TMBD_API_TOKEN } from "../.auth/vars.js";
 
 const global = {
@@ -6,10 +7,11 @@ const global = {
 	api_key: TMBD_API_TOKEN,
 	img_url: "https://image.tmdb.org/t/p",
 	search: {
-		term: "",
+		search_term: "",
 		type: "",
 		page: 1,
-		totalPages: 1,
+		total_pages: 1,
+		total_results: 0,
 	},
 };
 
@@ -29,7 +31,7 @@ async function fetchAPIData(endpoint, query = "") {
 async function searchAPIData() {
 	showSpinner(true);
 	const response = await fetch(
-		`${global.url}search/${global.search.type}?api_key=${global.api_key}&query=${global.search.term}`
+		`${global.url}/search/${global.search.type}?api_key=${global.api_key}&query=${global.search.search_term}&page=${global.search.page}`
 	);
 	const data = await response.json();
 	showSpinner(false);
@@ -70,75 +72,102 @@ async function getPopularTV() {
 	});
 }
 
-//Re-write of an universal card to add to DOM
-//type is either "movie" or "tv"
-//needs to be appended to DOM
-function createCard(result, type) {
-	const div = document.createElement("div");
-	div.classList.add("card");
+// Get paginated search results
+async function getSearchResults() {
+	const urlParams = new URLSearchParams(window.location.search);
+	global.search.type = urlParams.get("type");
+	global.search.search_term = urlParams.get("search-term");
+	let list = [];
 
-	//link
-	const link = document.createElement("a");
-	link.setAttribute("href", `${type}-details.html?id=${result.id}`);
-	const img = document.createElement("img");
-	img.setAttribute(
-		"src",
-		result.poster_path
-			? `${global.img_url}/w500/${result.poster_path}`
-			: "../images/no-image.jpg"
-	);
-	img.setAttribute("alt", result.title);
-	img.className = "card-img-top";
-	link.appendChild(img);
-	div.appendChild(link);
+	if (!!global.search.search_term) {
+		const { results, total_pages, page, total_results } = await searchAPIData();
+		global.search.page = page;
+		global.search.total_pages = total_pages;
+		global.search.total_results = total_results;
 
-	//card
-	const cardBody = document.createElement("div");
-	cardBody.className = "card-cardBody";
-	const header = document.createElement("h5");
-	header.className = "card-title";
-	const p = document.createElement("p");
-	p.className = "card-text";
-	const small = document.createElement("small");
-	small.className = "text-muted";
-
-	if (type === "movie") {
-		header.appendChild(document.createTextNode(result.title));
-		small.innerText = `Release: ${result["release_date"]}`;
+		if (!results.length) {
+			showAlert("No results found");
+		} else {
+			displaySearchResults(results);
+		}
 	} else {
-		header.appendChild(document.createTextNode(result.name));
-		small.innerText = `Aired: ${result.first_air_date}`;
+		showAlert("Please enter a search term");
+		global.search.page = 1;
+		global.search.total_pages = 1;
+		global.search.total_results = 0;
 	}
+}
+//Display search results to DOM
+function displaySearchResults(list) {
+	//clear prev results
+	document.querySelector("#search-results").innerHTML = "";
+	document.querySelector("#search-results-heading").innerHTML = "";
+	document.querySelector("#pagination").innerHTML = "";
 
-	p.appendChild(small);
-	cardBody.appendChild(header);
-	cardBody.appendChild(p);
-	div.appendChild(cardBody);
+	//display results as cards in DOM
+	list.forEach((item) => {
+		const el = createCard(item, global.search.type);
+		const div = document.getElementById("search-results");
+		div.appendChild(el);
+	});
 
-	return div;
+	// display search results in heading
+	document.querySelector("#search-results-heading").innerHTML = `
+			<h2>${list.length} of ${global.search.total_results} results for ${global.search.search_term}</h2>`;
+
+	displayPagination();
 }
 
-//Show spinner while loading items
-function showSpinner(show = true) {
-	document.querySelector(".spinner").classList.toggle("show", show);
-}
+//Display pagination on search page
+function displayPagination() {
+	const div = document.createElement("div");
+	div.classList.add("pagination");
+	div.innerHTML = `
+			<button class="btn btn-primary" id="prev">Prev</button>
+			<button class="btn btn-primary" id="next">Next</button>
+			<div class="page-counter">Page ${global.search.page} of ${global.search.total_pages}</div>
+			`;
+	document.getElementById("pagination").appendChild(div);
 
-// Show Alert
-function showAlert(message, className = "error") {
-	const alertEl = document.createElement("div");
-	alertEl.classList.add("alert", className);
-	alertEl.appendChild(document.createTextNode(message));
-	document.querySelector("#alert").appendChild(alertEl);
+	//disable prev button if on first page
+	document
+		.getElementById("prev")
+		.toggleAttribute("disabled", global.search.page === 1);
 
-	setTimeout(() => alertEl.remove(), 6000);
+	//disable next btn if on the last page
+	document
+		.getElementById("next")
+		.toggleAttribute(
+			"disabled",
+			global.search.page === global.search.total_pages
+		);
+
+	//event listeners
+	document.getElementById("next").addEventListener("click", async () => {
+		global.search.page++;
+		const { results } = await searchAPIData();
+		displaySearchResults(results);
+	});
+
+	document.getElementById("prev").addEventListener("click", async () => {
+		global.search.page--;
+		const { results } = await searchAPIData();
+		displaySearchResults(results);
+	});
 }
 
 // Display Slider Movies
 async function displaySlider() {
-	const { results } = await fetchAPIData("/movie/now_playing");
+	let nowPlaying = JSON.parse(sessionStorage.getItem("now_playing") || "[]");
 
-	console.log(results);
-	results.forEach((movie) => {
+	if (!nowPlaying.length) {
+		const { results } = await fetchAPIData("/movie/now_playing");
+		//console.log(results);
+		nowPlaying = results;
+		sessionStorage.setItem("now_playing", JSON.stringify(nowPlaying));
+	}
+
+	nowPlaying.forEach((movie) => {
 		const div = document.createElement("div");
 		div.classList.add("swiper-slide");
 
@@ -322,6 +351,68 @@ async function getTVdetails() {
 	showSpinner(false);
 }
 
+//Create card of type "movie" or "tv"
+//needs to be appended to DOM
+function createCard(result, type) {
+	const div = document.createElement("div");
+	div.classList.add("card");
+
+	//link
+	const link = document.createElement("a");
+	link.setAttribute("href", `${type}-details.html?id=${result.id}`);
+	const img = document.createElement("img");
+	img.setAttribute(
+		"src",
+		result.poster_path
+			? `${global.img_url}/w500/${result.poster_path}`
+			: "../images/no-image.jpg"
+	);
+	img.setAttribute("alt", result.title);
+	img.className = "card-img-top";
+	link.appendChild(img);
+	div.appendChild(link);
+
+	//card
+	const cardBody = document.createElement("div");
+	cardBody.className = "card-cardBody";
+	const header = document.createElement("h5");
+	header.className = "card-title";
+	const p = document.createElement("p");
+	p.className = "card-text";
+	const small = document.createElement("small");
+	small.className = "text-muted";
+
+	if (type === "movie") {
+		header.appendChild(document.createTextNode(result.title));
+		small.innerText = `Release: ${result["release_date"]}`;
+	} else {
+		header.appendChild(document.createTextNode(result.name));
+		small.innerText = `Aired: ${result.first_air_date}`;
+	}
+
+	p.appendChild(small);
+	cardBody.appendChild(header);
+	cardBody.appendChild(p);
+	div.appendChild(cardBody);
+
+	return div;
+}
+
+//Show spinner while loading items
+function showSpinner(show = true) {
+	document.querySelector(".spinner").classList.toggle("show", show);
+}
+
+// Show Alert
+function showAlert(message, className = "error") {
+	const alertEl = document.createElement("div");
+	alertEl.classList.add("alert", className);
+	alertEl.appendChild(document.createTextNode(message));
+	document.querySelector("#alert").appendChild(alertEl);
+
+	setTimeout(() => alertEl.remove(), 5000);
+}
+
 //Add backgroud image to show / movie details page
 function showBgImage(type, path) {
 	const div = document.createElement("div");
@@ -371,7 +462,7 @@ function init() {
 			getTVdetails();
 			break;
 		case "/search.html":
-			console.log("movie det");
+			getSearchResults();
 			break;
 	}
 	highlightActive();
