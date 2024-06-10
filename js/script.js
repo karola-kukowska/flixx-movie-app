@@ -1,10 +1,9 @@
 //Login to imdb to get a free api key
-import { TMBD_API_TOKEN } from "../.auth/vars.js";
 
 const global = {
 	currentPage: window.location.pathname,
 	url: "https://api.themoviedb.org/3",
-	api_key: TMBD_API_TOKEN,
+	api_key: "8ae2fe3b2a39f679faa2a8870f04f65b",
 	img_url: "https://image.tmdb.org/t/p",
 	search: {
 		search_term: "",
